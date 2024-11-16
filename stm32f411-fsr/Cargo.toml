@@ -12,6 +12,7 @@ cortex-m-rtic = "1.1"
 defmt-rtt = "0.4.1"
 usb-device = "0.3.2"
 usbd-serial = "0.2.2"
+rtt-target = "0.5.0"
 
 [dependencies.stm32f4xx-hal]
 version = "0.22.1"
