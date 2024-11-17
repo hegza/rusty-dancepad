@@ -40,7 +40,7 @@ mod app {
     #[init]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         rtt_init_print!();
-        rprintln!("hello world");
+        rprintln!("[usb_serial]");
 
         // Get the dp peripherals
         let dp: pac::Peripherals = ctx.device;
