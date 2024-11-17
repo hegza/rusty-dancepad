@@ -162,16 +162,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "defmt-rtt"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bab697b3dbbc1750b7c8b821aa6f6e7f2480b47a99bc057a2ed7b170ebef0c51"
-dependencies = [
- "critical-section",
- "defmt",
-]
-
-[[package]]
 name = "deranged"
 version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -301,7 +291,6 @@ version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17186ad64927d5ac8f02c1e77ccefa08ccd9eaa314d5a4772278aa204a22f7e7"
 dependencies = [
- "defmt",
  "gcd",
 ]
 
@@ -414,9 +403,6 @@ name = "nb"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d5439c4ad607c3c23abf66de8c8bf57ba8adcd1f129e699851a6e43935d339d"
-dependencies = [
- "defmt",
-]
 
 [[package]]
 name = "num-conv"
@@ -661,7 +647,6 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "critical-section",
- "defmt",
  "portable-atomic",
  "vcell",
 ]
@@ -673,7 +658,7 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "cortex-m-rtic",
- "defmt-rtt",
+ "frunk",
  "panic-probe",
  "rtt-target",
  "stm32-usbd",
@@ -693,7 +678,6 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "cortex-m-rtic",
- "defmt",
  "document-features",
  "embedded-dma",
  "embedded-hal 0.2.7",
@@ -821,7 +805,6 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "98816b1accafbb09085168b90f27e93d790b4bfa19d883466b5e53315b5f06a6"
 dependencies = [
- "defmt",
  "heapless 0.8.0",
  "portable-atomic",
 ]
@@ -832,7 +815,6 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f549646a39027f191f865a222f20b1886e4c16848d67a43191f63c1a9d59c07"
 dependencies = [
- "defmt",
  "frunk",
  "fugit",
  "heapless 0.8.0",

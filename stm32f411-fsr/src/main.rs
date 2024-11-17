@@ -5,6 +5,8 @@
 // Print panic message to probe console
 use panic_probe as _;
 
+use stm32f4xx_hal::gpio::{Input, PA0, PA1, PA2, PA3};
+
 #[rtic::app(device = stm32f4xx_hal::pac, peripherals = true)]
 mod app {
     use stm32f4xx_hal::prelude::*;
@@ -36,4 +38,23 @@ mod app {
             continue;
         }
     }
+}
+
+struct AdcPins {
+    adc0: PA0<Input>,
+    adc1: PA1<Input>,
+    adc2: PA2<Input>,
+    adc3: PA3<Input>,
+}
+
+fn get_report(/*pins: AdcPins*/) -> JoystickReport {
+    // Read out 8 buttons first
+    let mut buttons = 0;
+
+    buttons = 0b0101_0101;
+
+    // Always return center
+    let (x, y) = (0, 0);
+
+    JoystickReport { buttons, x, y }
 }

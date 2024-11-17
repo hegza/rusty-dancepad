@@ -4,6 +4,8 @@
 // Print panic message to probe console
 use panic_probe as _;
 
+use usbd_human_interface_device::device::joystick::JoystickReport;
+
 static mut EP_MEMORY: [u32; 1024] = [0; 1024];
 
 #[rtic::app(device = stm32f4xx_hal::pac, peripherals = true)]
@@ -11,17 +13,18 @@ mod app {
     use core::ptr;
 
     use rtt_target::{rprintln, rtt_init_print};
-    use stm32f4xx_hal::otg_fs::UsbBus;
-    use stm32f4xx_hal::prelude::*;
     use stm32f4xx_hal::{
         gpio::{Output, PushPull, PC13},
-        otg_fs::USB,
+        otg_fs::{UsbBus, USB},
         pac,
+        prelude::*,
         timer::{CounterHz, Event, Timer},
     };
-    use usb_device::bus::UsbBusAllocator;
-    use usb_device::device::{StringDescriptors, UsbDevice, UsbDeviceBuilder, UsbVidPid};
-    use usbd_serial::SerialPort;
+    use usb_device::{
+        bus::UsbBusAllocator,
+        device::{StringDescriptors, UsbDevice, UsbDeviceBuilder, UsbVidPid},
+    };
+    use usbd_human_interface_device::{device::joystick::Joystick, prelude::*};
 
     static mut USB_BUS_ALLOCATOR: Option<UsbBusAllocator<UsbBus<USB>>> = None;
 
@@ -33,8 +36,9 @@ mod app {
     struct Local {
         led: PC13<Output<PushPull>>,
         timer: CounterHz<pac::TIM2>,
-        serial: SerialPort<'static, UsbBus<USB>>,
-        usb_dev: UsbDevice<'static, stm32f4xx_hal::otg_fs::UsbBus<USB>>,
+        usb_dev: UsbDevice<'static, UsbBus<USB>>,
+        joy: UsbHidClass<'static, UsbBus<USB>, frunk::HList!(Joystick<'static, UsbBus<USB>>)>,
+        cycles: usize,
     }
 
     #[init]
@@ -56,7 +60,7 @@ mod app {
 
         // Configure TIM2 as a periodic timer
         let mut timer = Timer::new(dp.TIM2, &clocks).counter_hz();
-        timer.start(1u32.Hz()).unwrap();
+        timer.start(1_000.Hz()).unwrap();
         timer.listen(Event::Update);
 
         let gpioa = dp.GPIOA.split();
@@ -71,16 +75,18 @@ mod app {
         let usb_bus = UsbBus::new(usb, unsafe { &mut *ptr::addr_of_mut!(crate::EP_MEMORY) });
         unsafe { USB_BUS_ALLOCATOR.replace(usb_bus) };
 
-        let serial = usbd_serial::SerialPort::new(unsafe { USB_BUS_ALLOCATOR.as_ref().unwrap() });
+        let joy = UsbHidClassBuilder::new()
+            .add_device(usbd_human_interface_device::device::joystick::JoystickConfig::default())
+            .build(unsafe { USB_BUS_ALLOCATOR.as_ref().unwrap() });
 
+        //https://pid.codes
         let usb_dev = UsbDeviceBuilder::new(
             unsafe { USB_BUS_ALLOCATOR.as_ref().unwrap() },
-            UsbVidPid(0x16c0, 0x27dd),
+            UsbVidPid(0x1209, 0x0001),
         )
-        .device_class(usbd_serial::USB_CLASS_CDC)
         .strings(&[StringDescriptors::default()
-            .manufacturer("Fake Company")
-            .product("Serial Capitalizer")
+            .manufacturer("Hegza")
+            .product("Rusty Joystick")
             .serial_number("TEST")])
         .unwrap()
         .build();
@@ -92,58 +98,53 @@ mod app {
             Shared {},
             Local {
                 usb_dev,
-                serial,
                 led,
                 timer,
+                joy,
+                cycles: 0,
             },
             init::Monotonics(),
         )
     }
 
-    // Optional idle, can be removed if not needed.
-    #[idle(local = [usb_dev, serial])]
-    fn idle(cx: idle::Context) -> ! {
-        loop {
-            if !cx.local.usb_dev.poll(&mut [cx.local.serial]) {
-                continue;
-            }
-
-            let mut buf = [0u8; 64];
-
-            match cx.local.serial.read(&mut buf) {
-                Ok(count) if count > 0 => {
-                    // Echo back in upper case
-                    for c in buf[0..count].iter_mut() {
-                        if 0x61 <= *c && *c <= 0x7a {
-                            *c &= !0x20;
-                        }
-                    }
-
-                    let mut write_offset = 0;
-                    while write_offset < count {
-                        match cx.local.serial.write(&buf[write_offset..count]) {
-                            Ok(len) if len > 0 => {
-                                write_offset += len;
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
+    #[idle(local = [])]
+    fn idle(_: idle::Context) -> ! {
+        loop {}
     }
 
-    #[task(binds = TIM2, local = [led, timer])]
-    fn blink(ctx: blink::Context) {
-        rprintln!("tick");
-        let led = ctx.local.led;
-        let timer = ctx.local.timer;
+    #[task(binds = TIM2, local = [led, timer, usb_dev, cycles, joy])]
+    fn blink(cx: blink::Context) {
+        let led = cx.local.led;
+        let timer = cx.local.timer;
 
-        // Toggle the LED
-        led.toggle();
+        // Toggle the LED every 1000 cycles (~1 per sec)
+        *cx.local.cycles += 1;
+        if *cx.local.cycles % 1000 == 0 {
+            led.toggle();
+        }
+
+        // Poll every 1ms
+        match cx.local.joy.device().write_report(&crate::get_report()) {
+            Err(UsbHidError::WouldBlock) => {}
+            Ok(_) => {}
+            Err(e) => {
+                core::panic!("Failed to write joystick report: {:?}", e)
+            }
+        }
+
+        if cx.local.usb_dev.poll(&mut [cx.local.joy]) {}
 
         // Clear the timer interrupt flag
         timer.clear_all_flags();
     }
+}
+
+fn get_report() -> JoystickReport {
+    // Read out 8 buttons first
+    let buttons = 0b0101_0101;
+
+    // Always return center
+    let (x, y) = (0, 0);
+
+    JoystickReport { buttons, x, y }
 }
