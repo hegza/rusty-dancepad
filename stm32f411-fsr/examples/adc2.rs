@@ -11,12 +11,11 @@ mod app {
     use stm32f4xx_hal::{
         adc::{
             config::{AdcConfig, Dma, SampleTime, Scan, Sequence},
-            Adc, Temperature,
+            Adc,
         },
         dma::{config::DmaConfig, PeripheralToMemory, Stream0, StreamsTuple, Transfer},
         pac::{self, ADC1, DMA2},
         prelude::*,
-        signature::{VtempCal110, VtempCal30},
     };
 
     const MONO_HZ: u32 = 84_000_000; // 8 MHz
@@ -62,7 +61,8 @@ mod app {
         let mono = DwtSystick::new(&mut dcb, dwt, systick, MONO_HZ);
 
         let gpioa = device.GPIOA.split();
-        let voltage = gpioa.pa5.into_analog();
+        let v1 = gpioa.pa5.into_analog();
+        let v2 = gpioa.pa6.into_analog();
 
         let dma = StreamsTuple::new(device.DMA2);
 
@@ -76,8 +76,8 @@ mod app {
             .scan(Scan::Enabled);
 
         let mut adc = Adc::adc1(device.ADC1, true, adc_config);
-        adc.configure_channel(&Temperature, Sequence::One, SampleTime::Cycles_480);
-        adc.configure_channel(&voltage, Sequence::Two, SampleTime::Cycles_480);
+        adc.configure_channel(&v1, Sequence::One, SampleTime::Cycles_480);
+        adc.configure_channel(&v2, Sequence::Two, SampleTime::Cycles_480);
         adc.enable_temperature_and_vref();
 
         // These buffers need to be 'static to use safely with the DMA - we can't allow them to be dropped while the DMA is accessing them.
@@ -124,19 +124,16 @@ mod app {
         });
 
         // Pull the ADC data out of the buffer that the DMA transfer gave us
-        let raw_temp = buffer[0];
-        let raw_volt = buffer[1];
+        let raw_volt1 = buffer[0];
+        let raw_volt2 = buffer[1];
 
         // Now that we're finished with this buffer, put it back in `local.buffer` so it's ready for the next transfer
         // If we don't do this before the next transfer, we'll get a panic
         *local.buffer = Some(buffer);
 
-        let cal30 = VtempCal30::get().read() as f32;
-        let cal110 = VtempCal110::get().read() as f32;
+        let voltage1 = sample_to_millivolts(raw_volt1);
+        let voltage2 = sample_to_millivolts(raw_volt2);
 
-        let temperature = (110.0 - 30.0) * ((raw_temp as f32) - cal30) / (cal110 - cal30) + 30.0;
-        let voltage = sample_to_millivolts(raw_volt);
-
-        rprintln!("temperature: {}, voltage: {}", temperature, voltage);
+        rprintln!("voltage 1: {:<4}, voltage 2: {:<4}", voltage1, voltage2);
     }
 }
