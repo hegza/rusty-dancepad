@@ -54,6 +54,7 @@ mod app {
         usb_dev: UsbDevice<'static, UsbBus<USB>>,
         timer: CounterHz<pac::TIM2>,
         joy: UsbHidClass<'static, UsbBus<USB>, frunk::HList!(Joystick<'static, UsbBus<USB>>)>,
+        dma_counter: usize,
     }
 
     #[init]
@@ -149,7 +150,7 @@ mod app {
         // Give the first buffer to the DMA. The second buffer is held in an Option in `local.buffer` until the transfer is complete
         let transfer = Transfer::init_peripheral_to_memory(dma.0, adc, first_buffer, None, config);
 
-        polling::spawn_after(1.secs()).ok();
+        adc_poll::spawn_after(1.millis()).ok();
 
         (
             Shared {
@@ -161,23 +162,24 @@ mod app {
                 usb_dev,
                 joy,
                 timer,
+                dma_counter: 0,
             },
             init::Monotonics(mono),
         )
     }
 
     #[task(shared = [transfer])]
-    fn polling(mut cx: polling::Context) {
+    fn adc_poll(mut cx: adc_poll::Context) {
         cx.shared.transfer.lock(|transfer| {
             transfer.start(|adc| {
                 adc.start_conversion();
             });
         });
 
-        polling::spawn_after(1.secs()).ok();
+        adc_poll::spawn_after(1.millis()).ok();
     }
 
-    #[task(binds = DMA2_STREAM0, shared = [transfer, adc_values], local = [buffer])]
+    #[task(binds = DMA2_STREAM0, shared = [transfer, adc_values], local = [buffer, dma_counter])]
     fn dma(cx: dma::Context) {
         let dma::Context { mut shared, local } = cx;
         let (buffer, sample_to_millivolts) = shared.transfer.lock(|transfer| {
@@ -205,18 +207,22 @@ mod app {
         // If we don't do this before the next transfer, we'll get a panic
         *local.buffer = Some(buffer);
 
-        let voltage1 = sample_to_millivolts(raw_volt1);
-        let voltage2 = sample_to_millivolts(raw_volt2);
-        let voltage3 = sample_to_millivolts(raw_volt3);
-        let voltage4 = sample_to_millivolts(raw_volt4);
+        // Print periodically
+        *local.dma_counter = (*local.dma_counter + 1) % 500;
+        if *local.dma_counter == 0 {
+            let voltage1 = sample_to_millivolts(raw_volt1);
+            let voltage2 = sample_to_millivolts(raw_volt2);
+            let voltage3 = sample_to_millivolts(raw_volt3);
+            let voltage4 = sample_to_millivolts(raw_volt4);
 
-        rprintln!(
-            "voltage 1: {:<4}, voltage 2: {:<4}, voltage 3: {:<4}, voltage 4: {:<4}",
-            voltage1,
-            voltage2,
-            voltage3,
-            voltage4
-        );
+            rprintln!(
+                "voltage 1: {:<4}, voltage 2: {:<4}, voltage 3: {:<4}, voltage 4: {:<4}",
+                voltage1,
+                voltage2,
+                voltage3,
+                voltage4
+            );
+        }
     }
 
     #[task(binds = TIM2, local = [timer, usb_dev, joy], shared = [adc_values])]
