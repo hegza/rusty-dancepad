@@ -6,12 +6,33 @@ use usbd_human_interface_device::device::joystick::JoystickReport;
 
 static mut EP_MEMORY: [u32; 1024] = [0; 1024];
 
+/// Raw ADC values
+#[derive(Default, Clone)]
+pub struct AdcValues([u16; 4]);
+
+fn get_report(vals: &AdcValues) -> JoystickReport {
+    // Read out 8 buttons first
+    let mut buttons = 0;
+
+    const THRESH: u16 = 512;
+    for (idx, v) in vals.0.iter().enumerate() {
+        if *v >= THRESH {
+            buttons |= 0b1 << idx;
+        }
+    }
+
+    // Always return center for the analog value
+    let (x, y) = (0, 0);
+
+    JoystickReport { buttons, x, y }
+}
+
 #[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [EXTI0])]
 mod app {
     use core::ptr;
 
+    use crate::AdcValues;
     use dwt_systick_monotonic::DwtSystick;
-
     use rtt_target::{rprintln, rtt_init_print};
     use stm32f4xx_hal::{
         adc::{
@@ -30,11 +51,9 @@ mod app {
     };
     use usbd_human_interface_device::{device::joystick::Joystick, prelude::*};
 
-    use crate::AdcValues;
-
     static mut USB_BUS_ALLOCATOR: Option<UsbBusAllocator<UsbBus<USB>>> = None;
 
-    const MONO_HZ: u32 = 84_000_000; // 8 MHz
+    const MONO_HZ: u32 = 84_000_000;
 
     #[monotonic(binds = SysTick, default = true)]
     type MyMono = DwtSystick<MONO_HZ>;
@@ -60,7 +79,7 @@ mod app {
     #[init]
     fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
         rtt_init_print!();
-        rprintln!("[adc]");
+        rprintln!("[rusty_dancepad]");
 
         let dp: pac::Peripherals = cx.device;
 
@@ -249,25 +268,4 @@ mod app {
         // Clear the timer interrupt flag
         timer.clear_all_flags();
     }
-}
-
-/// Raw ADC values
-#[derive(Default, Clone)]
-pub struct AdcValues([u16; 4]);
-
-fn get_report(vals: &AdcValues) -> JoystickReport {
-    // Read out 8 buttons first
-    let mut buttons = 0;
-
-    const THRESH: u16 = 512;
-    for (idx, v) in vals.0.iter().enumerate() {
-        if *v >= THRESH {
-            buttons |= 0b1 << idx;
-        }
-    }
-
-    // Always return center for the analog value
-    let (x, y) = (0, 0);
-
-    JoystickReport { buttons, x, y }
 }
