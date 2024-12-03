@@ -144,13 +144,6 @@ mod app {
             (usb_dev, joy)
         };
 
-        let dma = StreamsTuple::new(dp.DMA2);
-
-        let config = DmaConfig::default()
-            .transfer_complete_interrupt(true)
-            .memory_increment(true)
-            .double_buffer(false);
-
         let adc_config = AdcConfig::default()
             .dma(Dma::Continuous)
             .scan(Scan::Enabled);
@@ -162,6 +155,12 @@ mod app {
         adc.configure_channel(&v4, Sequence::Four, SampleTime::Cycles_480);
         adc.enable_temperature_and_vref();
 
+        let dma = StreamsTuple::new(dp.DMA2);
+        let dma_config = DmaConfig::default()
+            .transfer_complete_interrupt(true)
+            .memory_increment(true)
+            .double_buffer(false);
+
         // These buffers need to be 'static to use safely with the DMA - we can't allow
         // them to be dropped while the DMA is accessing them. The easiest way
         // to satisfy that is to make them static, and the safest way to do that is with
@@ -170,7 +169,8 @@ mod app {
         let second_buffer = Some(cortex_m::singleton!(: [u16; 4] = [0; 4]).unwrap());
         // Give the first buffer to the DMA. The second buffer is held in an Option in
         // `local.buffer` until the transfer is complete
-        let transfer = Transfer::init_peripheral_to_memory(dma.0, adc, first_buffer, None, config);
+        let transfer =
+            Transfer::init_peripheral_to_memory(dma.0, adc, first_buffer, None, dma_config);
 
         adc_poll::spawn_after(1.millis()).ok();
 
