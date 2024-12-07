@@ -1,0 +1,6 @@
+[toolchain]
+channel = "nightly-2024-12-07"
+components = [ "rustfmt", "rustc-dev", "rust-analyzer", "clippy" ]
+targets = [ "x86_64-unknown-linux-gnu", "thumbv7em-none-eabihf" ]
+profile = "default"
+
