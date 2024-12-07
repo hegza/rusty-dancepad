@@ -1,5 +1,6 @@
 #![no_main]
 #![no_std]
+#![allow(static_mut_refs)]
 
 // Print panic message to probe console
 use panic_probe as _;
