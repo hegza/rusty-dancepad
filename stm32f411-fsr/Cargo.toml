@@ -1,8 +1,11 @@
+cargo-features = ["per-package-target"]
+
 [package]
 name = "rusty-dancepad"
 version = "0.1.0"
 authors = ["Henri Lunnikivi <heggggxa@gmail.com>"]
 edition = "2021"
+forced-target = "thumbv7em-none-eabihf"
 
 [dependencies]
 cortex-m = "0.7"
