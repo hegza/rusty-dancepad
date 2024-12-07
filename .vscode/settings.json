@@ -2,6 +2,7 @@
   "rust-analyzer.check.allTargets": false,
   "rust-analyzer.procMacro.enable": true,
   "rust-analyzer.cargo.extraArgs": [
-    "--examples"
+    "--examples",
+    "--bins",
   ]
 }
