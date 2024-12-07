@@ -23,14 +23,3 @@ dwt-systick-monotonic = "1.1.0"
 [dependencies.stm32f4xx-hal]
 version = "0.22.1"
 features = ["stm32f411", "rtic1", "usb_fs"]
-
-# Set the default for dependencies.
-[profile.dev.package."*"]
-opt-level = "s"
-
-[profile.release]
-codegen-units = 1
-incremental = false
-debug = true
-lto = true
-opt-level = "s"
