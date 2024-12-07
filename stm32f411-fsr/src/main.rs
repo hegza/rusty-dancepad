@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+type AdcValues = abi::AdcValues<4>;
 use panic_probe as _;
 use usbd_human_interface_device::device::joystick::JoystickReport;
 
@@ -11,7 +12,7 @@ fn get_report(vals: &AdcValues) -> JoystickReport {
     let mut buttons = 0;
 
     const THRESH: u16 = 512;
-    for (idx, v) in vals.0.iter().enumerate() {
+    for (idx, v) in vals.iter().enumerate() {
         if *v >= THRESH {
             buttons |= 0b1 << idx;
         }
@@ -213,7 +214,7 @@ mod app {
         });
 
         shared.adc_values.lock(|vals| {
-            *vals = AdcValues(*buffer);
+            *vals = *buffer;
         });
 
         // Pull the ADC data out of the buffer that the DMA transfer gave us
