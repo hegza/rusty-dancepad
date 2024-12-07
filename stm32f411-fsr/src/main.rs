@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![allow(static_mut_refs)]
 
 type AdcValues = abi::AdcValues<4>;
 use panic_probe as _;
