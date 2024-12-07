@@ -45,3 +45,10 @@ Attach
 ```ps
 usbipd attach --wsl --busid=<BUSID>
 ```
+
+## On cargo workspaces
+
+cargo doesn't let you have a single workspace with multiple target-specific crates. Instead, it will
+eventually support specifying supported targets on a per-crate basis.
+
+Tracking: <https://github.com/rust-lang/cargo/issues/6179>
