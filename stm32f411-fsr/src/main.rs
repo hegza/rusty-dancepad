@@ -6,10 +6,6 @@ use usbd_human_interface_device::device::joystick::JoystickReport;
 
 static mut EP_MEMORY: [u32; 1024] = [0; 1024];
 
-/// Raw ADC values
-#[derive(Default, Clone)]
-pub struct AdcValues([u16; 4]);
-
 fn get_report(vals: &AdcValues) -> JoystickReport {
     // Read out 8 buttons first
     let mut buttons = 0;
