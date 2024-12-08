@@ -1,12 +1,9 @@
 #![cfg_attr(feature = "device", no_std)]
+mod codec;
+mod message;
+mod serde;
+mod types;
 
-/// ADC values in millivolts (16-bit)
-///
-/// # Type arguments
-///
-/// * `N` - number of supported ADC channels and values.
-pub type AdcValues<const N: usize> = [u16; N];
-
-pub enum Command {}
-
-pub enum Response {}
+pub use codec::Codec;
+pub use corncobs;
+pub use message::{Command, Response};
