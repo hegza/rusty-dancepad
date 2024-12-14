@@ -47,6 +47,7 @@ fn start_cli() -> Arc<AtomicBool> {
 
 pub fn create_port(running: Arc<AtomicBool>) -> Arc<RwLock<tokio_serial::SerialStream>> {
     let (stream, _pty) = vsp_router::create_virtual_serial_port(&*COM_PATH).unwrap();
+    info!("Opened port at {}", &*COM_PATH);
     let stream = Arc::new(RwLock::new(stream));
     {
         let stream = Arc::clone(&stream);
