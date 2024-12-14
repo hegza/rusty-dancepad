@@ -1,5 +1,4 @@
 use corncobs::{max_encoded_len, CobsError};
-use ssmarshal::Error as MarshalError;
 use thiserror::Error;
 
 use crate::codec::Codec;
@@ -7,32 +6,28 @@ use crate::codec::Codec;
 #[cfg(feature = "crc")]
 pub const CKSUM: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_CKSUM);
 
-#[derive(Debug)]
-pub enum SerializeError {}
+#[derive(Debug, Error)]
+pub enum SerializeError {
+    #[error("failed to serialize: {0}")]
+    PostcardError(#[from] postcard::Error),
+}
 
 #[derive(Debug, Error)]
 pub enum DeserializeError {
     #[error("invalid framing: {0}")]
     InvalidFraming(CobsError),
-    #[error("{0}")]
-    MarshalError(MarshalError),
     #[cfg(feature = "crc")]
     /// The CRC computed from the data does not match the checksum
     #[error("CRC mismatch, value {0} != calculated {0}")]
     CrcMismatch { crc: u32, calculated: u32 },
+    #[error("failed to deserialize: {0}")]
+    PostcardError(#[from] postcard::Error),
 }
 
 // This manual conversion is required when thiserror is compiled without std
 impl From<CobsError> for DeserializeError {
     fn from(value: CobsError) -> Self {
         DeserializeError::InvalidFraming(value)
-    }
-}
-
-// This manual conversion is required when thiserror is compiled without std
-impl From<MarshalError> for DeserializeError {
-    fn from(value: MarshalError) -> Self {
-        DeserializeError::MarshalError(value)
     }
 }
 
@@ -73,20 +68,12 @@ where
         &self,
         out_buf: &'a mut [u8; N],
     ) -> Result<&'a mut [u8], Self::SerializeError> {
-        let mut n_ser = 0;
-        // Serialize the value
-        n_ser += ssmarshal::serialize(out_buf, self).unwrap();
-        #[cfg(feature = "crc")]
-        {
-            // Calculate CRC for the serialized value
-            let crc = CKSUM.checksum(&out_buf[0..n_ser]);
-            // Serialize the CRC
-            n_ser += ssmarshal::serialize(&mut out_buf[n_ser..], &crc).unwrap();
-        }
         // memcpy
-        let buf_copy = *out_buf;
+        let mut buf_copy = *out_buf;
+        // Serialize the value
+        let serialized = postcard::to_slice(self, &mut buf_copy)?;
         // Encode the whole message into a COBS packet
-        let n = corncobs::encode_buf(&buf_copy[0..n_ser], out_buf);
+        let n = corncobs::encode_buf(&serialized, out_buf);
         Ok(&mut out_buf[0..n])
     }
 
@@ -103,20 +90,7 @@ where
     /// * `MarshalError`
     /// * `CrcMismatch` - when the checksum computed from the data does not match the checksum
     fn deserialize_in_place(in_buf: &mut [u8]) -> Result<Self, Self::DeserializeError> {
-        let n = corncobs::decode_in_place(in_buf)?;
-        let (t, _resp_used) = ssmarshal::deserialize(&in_buf[0..n])?;
-        #[cfg(feature = "crc")]
-        {
-            let crc_buf = &in_buf[_resp_used..];
-            let (crc, _crc_used) = ssmarshal::deserialize::<u32>(crc_buf).unwrap();
-            let pkg_crc = CKSUM.checksum(&in_buf[0.._resp_used]);
-            if crc != pkg_crc {
-                return Err(DeserializeError::CrcMismatch {
-                    crc,
-                    calculated: pkg_crc,
-                });
-            }
-        }
+        let t = postcard::from_bytes_cobs(in_buf)?;
         Ok(t)
     }
 }

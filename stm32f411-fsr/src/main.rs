@@ -215,7 +215,7 @@ mod app {
         });
 
         shared.adc_values.lock(|vals| {
-            *vals = *buffer;
+            *vals = abi::AdcValues(*buffer);
         });
 
         // Pull the ADC data out of the buffer that the DMA transfer gave us

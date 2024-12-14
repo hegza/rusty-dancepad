@@ -1,4 +1,3 @@
-use crate::types::AdcValues;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -12,7 +11,7 @@ pub enum Command {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[repr(C)]
-pub enum Response<const N: usize> {
-    Values(AdcValues<N>),
-    Thresh(AdcValues<N>),
+pub enum Response {
+    Values4([u16; 4]),
+    Thresh4([u16; 4]),
 }
