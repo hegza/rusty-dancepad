@@ -5,7 +5,8 @@ use std::time::Duration;
 use std::{env, process, thread};
 
 use abi::{AdcValues, Codec, Command};
-use log::trace;
+use env_logger::Env;
+use log::{info, trace};
 
 type Response = abi::Response<4>;
 
@@ -64,7 +65,7 @@ pub fn create_port(running: Arc<AtomicBool>) -> Arc<RwLock<tokio_serial::SerialS
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
     let running = start_cli();
 
