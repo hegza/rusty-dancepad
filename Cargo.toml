@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["stm32f411-fsr", "abi", "dancepad-cli"]
+members = ["stm32f411-fsr", "abi", "emulator", "dancepad-cli"]
 
 # Set the default for dependencies.
 [profile.dev.package."*"]

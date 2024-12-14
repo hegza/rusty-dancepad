@@ -1,0 +1,13 @@
+[package]
+name = "emulator"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+abi = { version = "0.1.0", path = "../abi", features = ["device"] }
+console = "0.15.8"
+env_logger = "0.11.5"
+log = "0.4.22"
+tokio = { version = "1.42.0", default-features = false }
+# To create a virtual serial port
+vsp-router = { version = "1.0.3", default-features = false }
