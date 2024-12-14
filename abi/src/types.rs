@@ -12,7 +12,7 @@ use serde::{
 ///
 /// * `N` - number of supported ADC channels and values.
 #[derive(Clone, Debug, PartialEq)]
-pub struct AdcValues<const N: usize>([u16; N]);
+pub struct AdcValues<const N: usize>(pub [u16; N]);
 
 impl<const N: usize> Serialize for AdcValues<N> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

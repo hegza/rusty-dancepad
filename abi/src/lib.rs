@@ -7,3 +7,4 @@ mod types;
 pub use codec::Codec;
 pub use corncobs;
 pub use message::{Command, Response};
+pub use types::AdcValues;

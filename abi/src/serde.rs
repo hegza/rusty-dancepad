@@ -48,7 +48,7 @@ where
     /// Maximum possible length of the serialized packet. Required by the deserializer to determine
     /// how much memory needs to be allocated for the packet.
     const MAX_SERIALIZED_LEN: usize = max_encoded_len(
-        2 * size_of::<P>()
+        size_of::<P>()
             + size_of::<u32>()
             + if cfg!(feature = "crc") {
                 size_of::<u32>()
