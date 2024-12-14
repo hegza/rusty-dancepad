@@ -1,0 +1,9 @@
+[package]
+name = "dancepad-cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+abi = { version = "0.1.0", path = "../abi", features = ["host"] }
+log = "0.4.22"
+serial2 = "0.2.28"
