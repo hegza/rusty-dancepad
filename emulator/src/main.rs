@@ -1,3 +1,5 @@
+#![feature(panic_update_hook)]
+
 use std::io::{self, Read, Write};
 use std::sync::{
     self, Arc,
@@ -44,10 +46,7 @@ fn spawn_cli(running: Arc<AtomicBool>) {
 
 /// Frees the serial port
 fn free_port() {
-    warn!(
-        "received SIGINT, manually dropping virtual port at {}",
-        *COM_PATH
-    );
+    warn!("manually dropping virtual port at {}", *COM_PATH);
     if fs::exists(&*COM_PATH).unwrap() {
         fs::remove_file(&*COM_PATH).unwrap();
     }
@@ -62,12 +61,15 @@ async fn main() {
     info!("Opened port at {}", &*COM_PATH);
     let (mut serial, _pty) = vsp_router::create_virtual_serial_port(&*COM_PATH).unwrap();
     ctrlc::set_handler(move || {
+        debug!("enter: ctrl + C handler");
         free_port();
     })
     .unwrap();
-    std::panic::set_hook(Box::new(move |_| {
+    std::panic::update_hook(move |prev, info| {
+        debug!("enter: panic hook");
         free_port();
-    }));
+        prev(info);
+    });
 
     let mut cmd_buf = [0u8; MAX_LEN];
     let buf = &mut [0u8; 1];

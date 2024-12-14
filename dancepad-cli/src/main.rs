@@ -37,7 +37,8 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_millis(1000);
 
 /// Opens a serial port
 pub fn open() -> io::Result<SerialPort> {
-    let mut port = SerialPort::open(&*COM_PATH, 115200).unwrap();
+    let mut port = SerialPort::open(&*COM_PATH, 115200)
+        .unwrap_or_else(|_| panic!("no serial port at {}", &*COM_PATH));
 
     // Needed for windows, but should not hurt on Linux
     // TODO: re-enable for actual hardware (feature flag / runtime config for emulator)
