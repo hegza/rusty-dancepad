@@ -1,12 +1,14 @@
 use std::io::{self, Read, Write};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{self, Arc, RwLock};
+use std::sync::{
+    self, Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::Duration;
-use std::{env, process, thread};
+use std::{env, fs, process, thread};
 
 use abi::{AdcValues, Codec, Command};
 use env_logger::Env;
-use log::{info, trace};
+use log::{debug, info, warn};
 
 type Response = abi::Response<4>;
 
@@ -21,66 +23,62 @@ static COM_PATH: sync::LazyLock<String> = sync::LazyLock::new(|| {
 });
 
 /// Spawns a task that listens on terminal for a character, then sets the returned boolean as false.
-fn start_cli() -> Arc<AtomicBool> {
-    let running = Arc::new(AtomicBool::new(true));
-    {
-        let running = Arc::clone(&running);
-        tokio::spawn(async move {
-            while running.load(Ordering::Acquire) {
-                // Pause to get one character
-                let term = console::Term::stdout();
-                let c = term.read_char().unwrap_or_else(|e| match e.kind() {
-                    io::ErrorKind::Interrupted => {
-                        println!("read interrupt: another thread exited");
-                        process::exit(0);
-                    }
-                    _ => panic!("{}", e.to_string()),
-                });
-                match c {
-                    'q' | _ => running.store(false, Ordering::Relaxed),
+fn spawn_cli(running: Arc<AtomicBool>) {
+    tokio::spawn(async move {
+        while running.load(Ordering::Acquire) {
+            // Pause to get one character
+            let term = console::Term::stdout();
+            let c = term.read_char().unwrap_or_else(|e| match e.kind() {
+                io::ErrorKind::Interrupted => {
+                    println!("read interrupted: another thread exited");
+                    process::exit(0);
                 }
+                _ => panic!("{}", e.to_string()),
+            });
+            match c {
+                'q' | _ => running.store(false, Ordering::Relaxed),
             }
-        });
-    }
-    running
+        }
+    });
 }
 
-pub fn create_port(running: Arc<AtomicBool>) -> Arc<RwLock<tokio_serial::SerialStream>> {
-    let (stream, _pty) = vsp_router::create_virtual_serial_port(&*COM_PATH).unwrap();
-    info!("Opened port at {}", &*COM_PATH);
-    let stream = Arc::new(RwLock::new(stream));
-    {
-        let stream = Arc::clone(&stream);
-        ctrlc::set_handler(move || {
-            running.store(false, Ordering::Release);
-            println!("received Ctrl+C, dropping virtual port at {}", *COM_PATH);
-
-            drop(stream.try_write().unwrap());
-
-            process::exit(1);
-        })
-        .expect("Error setting Ctrl-C handler");
+/// Frees the serial port
+fn free_port() {
+    warn!(
+        "received SIGINT, manually dropping virtual port at {}",
+        *COM_PATH
+    );
+    if fs::exists(&*COM_PATH).unwrap() {
+        fs::remove_file(&*COM_PATH).unwrap();
     }
-    stream
 }
 
 #[tokio::main]
 async fn main() {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
-    let running = start_cli();
-
-    let stream = create_port(Arc::clone(&running));
+    let running = Arc::new(AtomicBool::new(true));
+    spawn_cli(Arc::clone(&running));
+    info!("Opened port at {}", &*COM_PATH);
+    let (mut serial, _pty) = vsp_router::create_virtual_serial_port(&*COM_PATH).unwrap();
+    ctrlc::set_handler(move || {
+        free_port();
+    })
+    .unwrap();
+    std::panic::set_hook(Box::new(move |_| {
+        free_port();
+    }));
 
     let mut cmd_buf = [0u8; MAX_LEN];
     let buf = &mut [0u8; 1];
     let mut idx = 0;
     // Wait for command
     const MAX_LEN: usize = Response::MAX_SERIALIZED_LEN;
+
     while running.load(Ordering::Acquire) {
         // Read byte-by-byte until we receive a packet frame
-        if let Ok(_n) = stream.try_write().unwrap().read(buf) {
-            trace!("Read: {buf:?}");
+        if let Ok(_n) = serial.read(buf) {
+            debug!("Read: {buf:?}");
 
             let byte = buf[0];
             if byte != abi::corncobs::ZERO {
@@ -88,14 +86,13 @@ async fn main() {
                 idx += 1;
                 continue;
             }
-
             // Frame byte -> construct message
-            trace!("Received packet: {:?}", &cmd_buf[..idx]);
+            debug!("Received packet: {:?}", &cmd_buf[..idx]);
+
             let cmd = Command::deserialize_in_place(&mut cmd_buf)
                 // Hard error on failing to deserialize a cmd
                 .expect("unable to deserialize a known command");
-            trace!("Deserialized Response: {cmd:?}");
-            println!("Response: {cmd:?}");
+            println!("Received command: {cmd:?}");
 
             match cmd {
                 Command::GetValues => {
@@ -104,7 +101,7 @@ async fn main() {
 
                     let resp_buf = &mut [0u8; 255];
                     let packet = Response::Values(values).serialize(resp_buf).unwrap();
-                    stream.try_write().unwrap().write_all(packet).unwrap();
+                    serial.write_all(packet).unwrap();
                 }
                 Command::GetThresh => {
                     todo!()
@@ -117,4 +114,5 @@ async fn main() {
 
         thread::sleep(Duration::from_millis(100));
     }
+    info!("Exit");
 }
