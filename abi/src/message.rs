@@ -1,6 +1,7 @@
+use postcard::experimental::max_size::MaxSize;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, MaxSize)]
 #[repr(C)]
 pub enum Command {
     /// Get ADC values in millivolts
@@ -9,7 +10,7 @@ pub enum Command {
     GetThresh,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, MaxSize)]
 #[repr(C)]
 pub enum Response {
     Values4([u16; 4]),

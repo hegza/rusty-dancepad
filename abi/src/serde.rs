@@ -3,9 +3,6 @@ use thiserror::Error;
 
 use crate::codec::Codec;
 
-#[cfg(feature = "crc")]
-pub const CKSUM: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_CKSUM);
-
 #[derive(Debug, Error)]
 pub enum SerializeError {
     #[error("failed to serialize: {0}")]
@@ -16,10 +13,6 @@ pub enum SerializeError {
 pub enum DeserializeError {
     #[error("invalid framing: {0}")]
     InvalidFraming(CobsError),
-    #[cfg(feature = "crc")]
-    /// The CRC computed from the data does not match the checksum
-    #[error("CRC mismatch, value {0} != calculated {0}")]
-    CrcMismatch { crc: u32, calculated: u32 },
     #[error("failed to deserialize: {0}")]
     PostcardError(#[from] postcard::Error),
 }
@@ -35,22 +28,16 @@ impl From<CobsError> for DeserializeError {
 impl<P> Codec<P> for P
 where
     // `P` must be both serializable and deserializable to form a valid payload
-    P: for<'de> serde::Deserialize<'de> + serde::Serialize,
+    P: for<'de> serde::Deserialize<'de>
+        + serde::Serialize
+        + postcard::experimental::max_size::MaxSize,
 {
     type DeserializeError = DeserializeError;
     type SerializeError = SerializeError;
 
     /// Maximum possible length of the serialized packet. Required by the deserializer to determine
     /// how much memory needs to be allocated for the packet.
-    const MAX_SERIALIZED_LEN: usize = max_encoded_len(
-        size_of::<P>()
-            + size_of::<u32>()
-            + if cfg!(feature = "crc") {
-                size_of::<u32>()
-            } else {
-                0
-            },
-    );
+    const MAX_SERIALIZED_LEN: usize = max_encoded_len(P::POSTCARD_MAX_SIZE + size_of::<u32>());
 
     /// Serialize an instance of type `P` into a COBS packet with a CRC check for redundancy. Returns
     /// the sub-slice of `out_buf` that was allocated.
