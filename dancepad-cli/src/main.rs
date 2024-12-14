@@ -1,9 +1,7 @@
-use abi::{Codec, Command};
+use abi::{Codec, Command, Response};
 use log::{debug, info, trace};
 use serial2::SerialPort;
 use std::{env, io, sync, time::Duration};
-
-type Response = abi::Response<4>;
 
 /// File path to serial terminal, e.g., "/dev/ttyUSB0". Can be specified using the `COM_PATH`
 /// environment variable.
