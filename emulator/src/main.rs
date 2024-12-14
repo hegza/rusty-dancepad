@@ -8,11 +8,9 @@ use std::sync::{
 use std::time::Duration;
 use std::{env, fs, process, thread};
 
-use abi::{AdcValues, Codec, Command};
+use abi::{AdcValues, Codec, Command, Response};
 use env_logger::Env;
-use log::{debug, info, warn};
-
-type Response = abi::Response<4>;
+use log::{debug, info, trace, warn};
 
 const DEFAULT_COM_PATH: &str = "/tmp/ttyUSB0";
 
@@ -67,20 +65,19 @@ async fn main() {
     .unwrap();
     std::panic::update_hook(move |prev, info| {
         debug!("enter: panic hook");
-        free_port();
         prev(info);
+        free_port();
     });
 
-    let mut cmd_buf = [0u8; MAX_LEN];
+    const CMD_MAX_LEN: usize = Command::MAX_SERIALIZED_LEN;
+    let mut cmd_buf = [0u8; CMD_MAX_LEN];
     let buf = &mut [0u8; 1];
     let mut idx = 0;
-    // Wait for command
-    const MAX_LEN: usize = Response::MAX_SERIALIZED_LEN;
 
     while running.load(Ordering::Acquire) {
         // Read byte-by-byte until we receive a packet frame
         if let Ok(_n) = serial.read(buf) {
-            debug!("Read: {buf:?}");
+            trace!("Read byte: {buf:?}");
 
             let byte = buf[0];
             if byte != abi::corncobs::ZERO {
@@ -89,20 +86,24 @@ async fn main() {
                 continue;
             }
             // Frame byte -> construct message
-            debug!("Received packet: {:?}", &cmd_buf[..idx]);
+            debug!("Frame detected: {:?}", &cmd_buf[..idx]);
 
             let cmd = Command::deserialize_in_place(&mut cmd_buf)
                 // Hard error on failing to deserialize a cmd
                 .expect("unable to deserialize a known command");
-            println!("Received command: {cmd:?}");
+            debug!("Deserialized command: {cmd:?}");
 
             match cmd {
                 Command::GetValues => {
                     //let now = Instant::now().duration_since(UNIX_EPOCH);
                     let values = AdcValues([4, 3, 2, 1]);
 
-                    let resp_buf = &mut [0u8; 255];
-                    let packet = Response::Values(values).serialize(resp_buf).unwrap();
+                    const RESP_MAX_LEN: usize = Response::MAX_SERIALIZED_LEN;
+                    let resp_buf = &mut [0u8; RESP_MAX_LEN];
+                    let resp = Response::Values4(values.into());
+                    debug!("Serialized response: {resp:?}");
+                    let packet = resp.serialize(resp_buf).unwrap();
+                    debug!("Sending packet: {packet:?}");
                     serial.write_all(packet).unwrap();
                 }
                 Command::GetThresh => {
@@ -111,7 +112,7 @@ async fn main() {
             }
 
             idx = 0;
-            cmd_buf = [0u8; MAX_LEN];
+            cmd_buf = [0u8; CMD_MAX_LEN];
         }
 
         thread::sleep(Duration::from_millis(100));
