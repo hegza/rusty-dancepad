@@ -1,6 +1,6 @@
 use core::ops::Deref;
 
-/// ADC values in millivolts (16-bit)
+/// Raw 16-bit ADC sample values
 ///
 /// # Type arguments
 ///
@@ -18,6 +18,12 @@ impl<const N: usize> Default for AdcValues<N> {
 impl<const N: usize> From<AdcValues<N>> for [u16; N] {
     fn from(value: AdcValues<N>) -> Self {
         value.0
+    }
+}
+
+impl<const N: usize> From<[u16; N]> for AdcValues<N> {
+    fn from(value: [u16; N]) -> Self {
+        AdcValues(value)
     }
 }
 
