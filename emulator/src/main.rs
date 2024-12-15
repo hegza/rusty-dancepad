@@ -1,11 +1,12 @@
 #![feature(panic_update_hook)]
 
+use std::f32::consts::PI;
 use std::io::{self, Read, Write};
 use std::sync::{
     self, Arc,
     atomic::{AtomicBool, Ordering},
 };
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{env, fs, process, thread};
 
 use abi::{AdcValues, Codec, Command, Response};
@@ -95,8 +96,20 @@ async fn main() {
 
             match cmd {
                 Command::GetValues => {
-                    //let now = Instant::now().duration_since(UNIX_EPOCH);
-                    let values = AdcValues([4, 3, 2, 1]);
+                    let start = SystemTime::now();
+                    let since_the_epoch = start
+                        .duration_since(UNIX_EPOCH)
+                        .expect("Time went backwards");
+
+                    let millis = since_the_epoch.as_millis();
+                    const PERIOD_MILLIS: u128 = 3000;
+                    const MAX_VALUE: f32 = 1000f32;
+                    let calc = |ofs| {
+                        // [0, 1]
+                        let frac = (((millis + ofs) % PERIOD_MILLIS) as f32) / PERIOD_MILLIS as f32;
+                        ((((frac * 2f32 * PI).sin() + 1f32) / 2f32) * MAX_VALUE) as u16
+                    };
+                    let values = AdcValues([calc(0), calc(500), calc(1000), calc(1500)]);
 
                     const RESP_MAX_LEN: usize = Response::MAX_SERIALIZED_LEN;
                     let resp_buf = &mut [0u8; RESP_MAX_LEN];
