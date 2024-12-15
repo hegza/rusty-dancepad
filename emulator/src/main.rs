@@ -9,7 +9,7 @@ use std::sync::{
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{env, fs, process, thread};
 
-use abi::{AdcValues, Codec, Command, Response};
+use abi::{Codec, Command, Response};
 use env_logger::Env;
 use log::{debug, info, trace, warn};
 
@@ -75,6 +75,9 @@ async fn main() {
     let buf = &mut [0u8; 1];
     let mut idx = 0;
 
+    const ADC_MAX_VALUE: f32 = 1000f32;
+    let mut thresh = [(ADC_MAX_VALUE / 4.) as u16; 4];
+
     while running.load(Ordering::Acquire) {
         // Read byte-by-byte until we receive a packet frame
         if let Ok(_n) = serial.read(buf) {
@@ -92,9 +95,16 @@ async fn main() {
             let cmd = Command::deserialize_in_place(&mut cmd_buf)
                 // Hard error on failing to deserialize a cmd
                 .expect("unable to deserialize a known command");
+            for b in cmd_buf.iter_mut() {
+                *b = 0;
+            }
             debug!("Deserialized command: {cmd:?}");
 
-            match cmd {
+            const RESP_MAX_LEN: usize = Response::MAX_SERIALIZED_LEN;
+            let resp_buf = &mut [0u8; RESP_MAX_LEN];
+
+            let resp = match cmd {
+                // Emulate ADC values from a sinusoidal
                 Command::GetValues => {
                     let start = SystemTime::now();
                     let since_the_epoch = start
@@ -103,26 +113,29 @@ async fn main() {
 
                     let millis = since_the_epoch.as_millis();
                     const PERIOD_MILLIS: u128 = 3000;
-                    const MAX_VALUE: f32 = 1000f32;
                     let calc = |ofs| {
                         // [0, 1]
                         let frac = (((millis + ofs) % PERIOD_MILLIS) as f32) / PERIOD_MILLIS as f32;
-                        ((((frac * 2f32 * PI).sin() + 1f32) / 2f32) * MAX_VALUE) as u16
+                        ((((frac * 2f32 * PI).sin() + 1f32) / 2f32) * ADC_MAX_VALUE) as u16
                     };
-                    let values = AdcValues([calc(0), calc(500), calc(1000), calc(1500)]);
-
-                    const RESP_MAX_LEN: usize = Response::MAX_SERIALIZED_LEN;
-                    let resp_buf = &mut [0u8; RESP_MAX_LEN];
-                    let resp = Response::Values4(values.into());
-                    debug!("Serialized response: {resp:?}");
-                    let packet = resp.serialize(resp_buf).unwrap();
-                    debug!("Sending packet: {packet:?}");
-                    serial.write_all(packet).unwrap();
+                    Response::Values4([calc(0), calc(500), calc(1000), calc(1500)])
                 }
-                Command::GetThresh => {
-                    todo!()
+                // Return internal threshold values
+                Command::GetThresh => Response::Values4(thresh),
+                // Set internal threshold values
+                Command::SetThresh4(th) => {
+                    thresh = th;
+                    Response::Ok
                 }
+            };
+            for b in resp_buf.iter_mut() {
+                *b = 0;
             }
+
+            debug!("Serialized response: {resp:?}");
+            let packet = resp.serialize(resp_buf).unwrap();
+            debug!("Sending packet: {packet:?}");
+            serial.write_all(packet).unwrap();
 
             idx = 0;
             cmd_buf = [0u8; CMD_MAX_LEN];
