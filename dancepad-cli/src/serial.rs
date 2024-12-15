@@ -58,7 +58,7 @@ pub fn open() -> io::Result<SerialPort> {
 /// * `port` - serial port with a connected device (ESP32-C3 serial server)
 /// * `timeout` - optional timeout, default if `None`
 pub fn exchange(cmd: &Command, port: &mut SerialPort) -> Result<Response, ResponseError> {
-    info!("sending: {:?}", cmd);
+    trace!("Sending: {:?}", cmd);
     send(cmd, port);
     wait_for_response(port)
 }
@@ -106,6 +106,6 @@ pub fn wait_for_response(port: &mut SerialPort) -> Result<Response, ResponseErro
     let response = Response::deserialize_in_place(&mut resp_buf)
         // Hard error on failing to deserialize a response
         .expect("Response ABI should not have changed");
-    info!("Deserialized response: {response:?}");
+    trace!("Deserialized response: {response:?}");
     Ok(response)
 }
