@@ -332,6 +332,7 @@ mod app {
                 });
                 abi::Response::Ok
             }
+            abi::Command::Ping => abi::Response::Ok,
         };
         let mut resp_buf = [0u8; abi::Response::MAX_SERIALIZED_LEN];
         resp.serialize(&mut resp_buf)
