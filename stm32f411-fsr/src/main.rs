@@ -2,19 +2,20 @@
 #![no_main]
 #![allow(static_mut_refs)]
 
+mod push_buffer;
+
 type AdcValues = abi::AdcValues<4>;
 use panic_probe as _;
 use usbd_human_interface_device::device::joystick::JoystickReport;
 
 static mut EP_MEMORY: [u32; 1024] = [0; 1024];
 
-fn get_report(vals: &AdcValues) -> JoystickReport {
+fn get_report(vals: &AdcValues, thresh: &[u16; 4]) -> JoystickReport {
     // Read out 8 buttons first
     let mut buttons = 0;
 
-    const THRESH: u16 = 512;
     for (idx, v) in vals.iter().enumerate() {
-        if *v >= THRESH {
+        if *v >= thresh[idx] {
             buttons |= 0b1 << idx;
         }
     }
@@ -29,7 +30,8 @@ fn get_report(vals: &AdcValues) -> JoystickReport {
 mod app {
     use core::ptr;
 
-    use crate::AdcValues;
+    use crate::{push_buffer::PushBuffer, AdcValues};
+    use abi::Codec;
     use dwt_systick_monotonic::DwtSystick;
     use rtt_target::{rprintln, rtt_init_print};
     use stm32f4xx_hal::{
@@ -39,8 +41,9 @@ mod app {
         },
         dma::{config::DmaConfig, PeripheralToMemory, Stream0, StreamsTuple, Transfer},
         otg_fs::{UsbBus, USB},
-        pac::{self, ADC1, DMA2},
+        pac::{self, ADC1, DMA2, USART1},
         prelude::*,
+        serial::{self, Serial},
         timer::{CounterHz, Event, Timer},
     };
     use usb_device::{
@@ -48,6 +51,7 @@ mod app {
         device::{StringDescriptors, UsbDevice, UsbDeviceBuilder, UsbVidPid},
     };
     use usbd_human_interface_device::{device::joystick::Joystick, prelude::*};
+    use usbd_serial::embedded_io::Write;
 
     static mut USB_BUS_ALLOCATOR: Option<UsbBusAllocator<UsbBus<USB>>> = None;
 
@@ -63,6 +67,7 @@ mod app {
     struct Shared {
         transfer: DMATransfer,
         adc_values: AdcValues,
+        thresh: [u16; 4],
     }
 
     #[local]
@@ -72,6 +77,9 @@ mod app {
         timer: CounterHz<pac::TIM2>,
         joy: UsbHidClass<'static, UsbBus<USB>, frunk::HList!(Joystick<'static, UsbBus<USB>>)>,
         dma_counter: usize,
+        cmd_buf: Option<PushBuffer<{ abi::Command::MAX_SERIALIZED_LEN }>>,
+        serial_rx: serial::Rx<USART1>,
+        serial_tx: serial::Tx<USART1>,
     }
 
     #[init]
@@ -109,6 +117,16 @@ mod app {
         let v2 = gpioa.pa6.into_analog();
         let v3 = gpioa.pa7.into_analog();
         let v4 = gpiob.pb0.into_analog();
+
+        let tx_pin = gpiob.pb6;
+        let rx_pin = gpiob.pb7;
+        let config = serial::Config::default().baudrate(115200.bps());
+
+        let serial = Serial::new(dp.USART1, (tx_pin, rx_pin), config, &clocks).unwrap();
+        let (serial_tx, mut serial_rx) = serial.split();
+
+        serial_rx.listen();
+        serial_rx.listen_idle();
 
         // USB
         let (usb_dev, joy) = {
@@ -176,6 +194,7 @@ mod app {
             Shared {
                 transfer,
                 adc_values: Default::default(),
+                thresh: [512; 4],
             },
             Local {
                 buffer: second_buffer,
@@ -183,6 +202,9 @@ mod app {
                 joy,
                 timer,
                 dma_counter: 0,
+                serial_rx,
+                serial_tx,
+                cmd_buf: None,
             },
             init::Monotonics(mono),
         )
@@ -247,17 +269,18 @@ mod app {
         }
     }
 
-    #[task(binds = TIM2, local = [timer, usb_dev, joy], shared = [adc_values])]
+    #[task(binds = TIM2, local = [timer, usb_dev, joy], shared = [adc_values, thresh])]
     fn usb_report(mut cx: usb_report::Context) {
         let timer = cx.local.timer;
 
         let values = cx.shared.adc_values.lock(|vals| vals.clone());
+        let thresh = cx.shared.thresh.lock(|vals| vals.clone());
         // Poll every 1ms
         match cx
             .local
             .joy
             .device()
-            .write_report(&crate::get_report(&values))
+            .write_report(&crate::get_report(&values, &thresh))
         {
             Err(UsbHidError::WouldBlock) => {}
             Ok(_) => {}
@@ -270,5 +293,47 @@ mod app {
 
         // Clear the timer interrupt flag
         timer.clear_all_flags();
+    }
+
+    #[task(binds = USART1, shared = [thresh, adc_values], local = [cmd_buf, serial_rx, serial_tx])]
+    fn uart_rx(mut cx: uart_rx::Context) {
+        let b = cx.local.serial_rx.read().unwrap();
+        if b != abi::corncobs::ZERO {
+            cx.local
+                .cmd_buf
+                .get_or_insert(PushBuffer::default())
+                .push(b)
+                // SAFETY: panics on buffer overflow
+                .unwrap();
+            return;
+        }
+
+        // Frame received -> act
+        let (mut packet, _len) = cx
+            .local
+            .cmd_buf
+            .take()
+            // SAFETY: guaranteed to exist, inserted by push above if it didn't exist
+            .unwrap()
+            .finish();
+        let cmd = abi::Command::deserialize_in_place(&mut packet).unwrap();
+
+        let resp = match cmd {
+            abi::Command::GetValues => {
+                abi::Response::Values4(cx.shared.adc_values.lock(|vals| vals.clone()).0)
+            }
+            abi::Command::GetThresh => abi::Response::Values4(cx.shared.thresh.lock(|th| *th)),
+            abi::Command::SetThresh4(nth) => {
+                cx.shared.thresh.lock(|th| {
+                    *th = nth.into();
+                });
+                abi::Response::Ok
+            }
+        };
+        let mut resp_buf = [0u8; abi::Response::MAX_SERIALIZED_LEN];
+        resp.serialize(&mut resp_buf)
+            // SAFETY: serialization should never fail
+            .unwrap();
+        cx.local.serial_tx.write_all(&resp_buf).unwrap();
     }
 }
