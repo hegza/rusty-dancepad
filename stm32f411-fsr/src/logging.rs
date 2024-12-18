@@ -2,7 +2,7 @@ use log::{Level, LevelFilter, Metadata, Record};
 use rtt_target::{rprint, rprintln};
 
 pub(crate) struct RttLogger {
-    level: Level,
+    level: LevelFilter,
 }
 
 const LONGEST_LEVEL_LEN: usize = /* TRACE */ 5;
@@ -24,8 +24,10 @@ impl log::Log for RttLogger {
     fn flush(&self) {}
 }
 
-pub fn init(level: Level) {
-    static LOGGER: RttLogger = RttLogger { level };
+pub fn init(default_level: LevelFilter) {
+    static LOGGER: RttLogger = RttLogger {
+        level: LevelFilter::Info,
+    };
     // SAFETY: there are no other loggers on system that could race against this
     unsafe {
         log::set_logger_racy(&LOGGER)
@@ -33,7 +35,7 @@ pub fn init(level: Level) {
                 log::set_max_level_racy(
                     option_env!("LOG_LEVEL")
                         .map(|s| s.parse().unwrap())
-                        .unwrap_or(LevelFilter::Info),
+                        .unwrap_or(default_level),
                 )
             })
             .unwrap();

@@ -88,7 +88,7 @@ mod app {
         rtt_init_print!();
         rprintln!("[rusty_dancepad]");
 
-        logging::init(log::Level::Trace);
+        crate::logging::init(log::LevelFilter::Trace);
 
         let dp: pac::Peripherals = cx.device;
 
