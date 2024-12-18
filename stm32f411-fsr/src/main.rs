@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 #![allow(static_mut_refs)]
-
+mod logging;
 mod push_buffer;
 
 type AdcValues = abi::AdcValues<4>;
@@ -33,6 +33,7 @@ mod app {
     use crate::{push_buffer::PushBuffer, AdcValues};
     use abi::Codec;
     use dwt_systick_monotonic::DwtSystick;
+    use log::{debug, trace, warn};
     use rtt_target::{rprintln, rtt_init_print};
     use stm32f4xx_hal::{
         adc::{
@@ -86,6 +87,8 @@ mod app {
     fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
         rtt_init_print!();
         rprintln!("[rusty_dancepad]");
+
+        logging::init(log::Level::Trace);
 
         let dp: pac::Peripherals = cx.device;
 
