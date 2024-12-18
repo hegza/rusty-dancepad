@@ -9,6 +9,7 @@ pub enum Command {
     /// Get button press thresholds in terms of raw ADC value
     GetThresh,
     SetThresh4([u16; 4]),
+    Ping,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, MaxSize)]
