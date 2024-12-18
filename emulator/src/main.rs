@@ -127,6 +127,7 @@ async fn main() {
                     thresh = th;
                     Response::Ok
                 }
+                Command::Ping => Response::Ok,
             };
             for b in resp_buf.iter_mut() {
                 *b = 0;
