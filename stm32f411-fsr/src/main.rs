@@ -214,6 +214,7 @@ mod app {
     }
 
     #[task(shared = [transfer])]
+    #[task(shared = [transfer], priority = 4)]
     fn adc_poll(mut cx: adc_poll::Context) {
         cx.shared.transfer.lock(|transfer| {
             transfer.start(|adc| {
@@ -224,7 +225,7 @@ mod app {
         adc_poll::spawn_after(1.millis()).ok();
     }
 
-    #[task(binds = DMA2_STREAM0, shared = [transfer, adc_values], local = [buffer, dma_counter])]
+    #[task(binds = DMA2_STREAM0, priority = 3, shared = [transfer, adc_values], local = [buffer, dma_counter])]
     fn dma(cx: dma::Context) {
         let dma::Context { mut shared, local } = cx;
         let (buffer, sample_to_millivolts) = shared.transfer.lock(|transfer| {
@@ -272,7 +273,7 @@ mod app {
         }
     }
 
-    #[task(binds = TIM2, local = [timer, usb_dev, joy], shared = [adc_values, thresh])]
+    #[task(binds = TIM2, priority = 2, local = [timer, usb_dev, joy], shared = [adc_values, thresh])]
     fn usb_report(mut cx: usb_report::Context) {
         let timer = cx.local.timer;
 
@@ -298,7 +299,7 @@ mod app {
         timer.clear_all_flags();
     }
 
-    #[task(binds = USART1, shared = [thresh, adc_values], local = [cmd_buf, serial_rx, serial_tx])]
+    #[task(binds = USART1, priority = 1, shared = [thresh, adc_values], local = [cmd_buf, serial_rx, serial_tx])]
     fn uart_rx(mut cx: uart_rx::Context) {
         let b = cx.local.serial_rx.read().unwrap();
         if b != abi::corncobs::ZERO {
