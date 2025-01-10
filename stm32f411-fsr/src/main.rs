@@ -6,10 +6,20 @@ mod push_buffer;
 
 type AdcValues = abi::AdcValues<4>;
 use panic_probe as _;
-use usbd_human_interface_device::device::joystick::JoystickReport;
+use core::ptr;
 
 #[rustfmt::skip]
 const DEFAULT_THRESH: [u16; 4] = [
+use stm32f4xx_hal::otg_fs::{UsbBus, USB};
+use usb_device::{
+    bus::UsbBusAllocator,
+    device::{StringDescriptors, UsbDevice, UsbDeviceBuilder, UsbVidPid},
+};
+use usbd_human_interface_device::{
+    device::joystick::{Joystick, JoystickReport},
+    prelude::*,
+};
+
     // Left
     2400,
     // Down
@@ -21,7 +31,9 @@ const DEFAULT_THRESH: [u16; 4] = [
     // ???: above is not flashed yet
 ];
 
+/// Scratchpad for USB
 static mut EP_MEMORY: [u32; 1024] = [0; 1024];
+static mut USB_BUS_ALLOCATOR: Option<UsbBusAllocator<UsbBus<USB>>> = None;
 
 fn get_report(vals: &AdcValues, thresh: &[u16; 4]) -> JoystickReport {
     // Read out 8 buttons first
@@ -39,15 +51,42 @@ fn get_report(vals: &AdcValues, thresh: &[u16; 4]) -> JoystickReport {
     JoystickReport { buttons, x, y }
 }
 
+fn setup_usb_joystick(
+    usb: USB,
+) -> (
+    UsbDevice<'static, UsbBus<USB>>,
+    UsbHidClass<'static, UsbBus<USB>, frunk::HList!(Joystick<'static, UsbBus<USB>>)>,
+) {
+    let usb_bus = UsbBus::new(usb, unsafe { &mut *ptr::addr_of_mut!(crate::EP_MEMORY) });
+    unsafe { USB_BUS_ALLOCATOR.replace(usb_bus) };
+
+    let joy = UsbHidClassBuilder::new()
+        .add_device(usbd_human_interface_device::device::joystick::JoystickConfig::default())
+        .build(unsafe { USB_BUS_ALLOCATOR.as_ref().unwrap() });
+
+    //https://pid.codes
+    let usb_dev = UsbDeviceBuilder::new(
+        unsafe { USB_BUS_ALLOCATOR.as_ref().unwrap() },
+        UsbVidPid(0x1209, 0x0001),
+    )
+    .strings(&[StringDescriptors::default()
+        .manufacturer("Hegza")
+        .product("Rusty Joystick")
+        .serial_number("TEST")])
+    .unwrap()
+    .build();
+
+    (usb_dev, joy)
+}
+
 #[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [EXTI0])]
 mod app {
-    use core::ptr;
-
-    use crate::{push_buffer::PushBuffer, AdcValues, DEFAULT_THRESH};
+    use crate::{push_buffer::PushBuffer, setup_usb_joystick, AdcValues, MAX_ADC_COUNT};
     use abi::Codec;
     use dwt_systick_monotonic::DwtSystick;
     use log::{debug, info, trace, warn};
     use rtt_target::{rprintln, rtt_init_print};
+    use stm32f4xx_hal::otg_fs::{UsbBus, USB};
     use stm32f4xx_hal::{
         adc::{
             config::{AdcConfig, Dma, SampleTime, Scan, Sequence},
@@ -55,20 +94,14 @@ mod app {
         },
         dma::{config::DmaConfig, PeripheralToMemory, Stream0, StreamsTuple, Transfer},
         gpio::{self, Output, PushPull},
-        otg_fs::{UsbBus, USB},
-        pac::{self, ADC1, DMA2, TIM1, USART1},
+        pac::{self, ADC1, DMA2, USART1},
         prelude::*,
         serial::{self, Serial},
-        timer::{self, CounterHz, Event, Timer},
+        timer::{CounterHz, Event, Timer},
     };
-    use usb_device::{
-        bus::UsbBusAllocator,
-        device::{StringDescriptors, UsbDevice, UsbDeviceBuilder, UsbVidPid},
-    };
+    use usb_device::device::UsbDevice;
     use usbd_human_interface_device::{device::joystick::Joystick, prelude::*};
     use usbd_serial::embedded_io::Write;
-
-    static mut USB_BUS_ALLOCATOR: Option<UsbBusAllocator<UsbBus<USB>>> = None;
 
     const MONO_HZ: u32 = 84_000_000;
 
@@ -88,8 +121,8 @@ mod app {
     #[local]
     struct Local {
         buffer: Option<&'static mut [u16; 4]>,
-        usb_dev: UsbDevice<'static, UsbBus<USB>>,
         timer: CounterHz<pac::TIM2>,
+        usb_dev: UsbDevice<'static, UsbBus<USB>>,
         joy: UsbHidClass<'static, UsbBus<USB>, frunk::HList!(Joystick<'static, UsbBus<USB>>)>,
         dma_counter: usize,
         cmd_buf: Option<PushBuffer<{ abi::Command::MAX_SERIALIZED_LEN }>>,
@@ -156,36 +189,12 @@ mod app {
         serial_rx.listen_idle();
 
         // USB
-        let (usb_dev, joy) = {
-            let usb = USB::new(
-                (dp.OTG_FS_GLOBAL, dp.OTG_FS_DEVICE, dp.OTG_FS_PWRCLK),
-                (gpioa.pa11, gpioa.pa12),
-                &clocks,
-            );
-
-            let usb_bus = UsbBus::new(usb, unsafe { &mut *ptr::addr_of_mut!(crate::EP_MEMORY) });
-            unsafe { USB_BUS_ALLOCATOR.replace(usb_bus) };
-
-            let joy = UsbHidClassBuilder::new()
-                .add_device(
-                    usbd_human_interface_device::device::joystick::JoystickConfig::default(),
-                )
-                .build(unsafe { USB_BUS_ALLOCATOR.as_ref().unwrap() });
-
-            //https://pid.codes
-            let usb_dev = UsbDeviceBuilder::new(
-                unsafe { USB_BUS_ALLOCATOR.as_ref().unwrap() },
-                UsbVidPid(0x1209, 0x0001),
-            )
-            .strings(&[StringDescriptors::default()
-                .manufacturer("Hegza")
-                .product("Rusty Joystick")
-                .serial_number("TEST")])
-            .unwrap()
-            .build();
-
-            (usb_dev, joy)
-        };
+        let usb = USB::new(
+            (dp.OTG_FS_GLOBAL, dp.OTG_FS_DEVICE, dp.OTG_FS_PWRCLK),
+            (gpioa.pa11, gpioa.pa12),
+            &clocks,
+        );
+        let (usb_dev, joy) = setup_usb_joystick(usb);
 
         let adc_config = AdcConfig::default()
             .dma(Dma::Continuous)
