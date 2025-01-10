@@ -46,7 +46,7 @@ mod app {
     use crate::{push_buffer::PushBuffer, AdcValues, DEFAULT_THRESH};
     use abi::Codec;
     use dwt_systick_monotonic::DwtSystick;
-    use log::{debug, trace, warn};
+    use log::{debug, info, trace, warn};
     use rtt_target::{rprintln, rtt_init_print};
     use stm32f4xx_hal::{
         adc::{
@@ -103,7 +103,8 @@ mod app {
         rtt_init_print!();
         rprintln!("[rusty_dancepad]");
 
-        crate::logging::init(log::LevelFilter::Trace);
+        crate::logging::init();
+        info!("logger initialized at level {}", log::max_level());
 
         let dp: pac::Peripherals = cx.device;
 
