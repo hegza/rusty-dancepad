@@ -8,6 +8,19 @@ type AdcValues = abi::AdcValues<4>;
 use panic_probe as _;
 use usbd_human_interface_device::device::joystick::JoystickReport;
 
+#[rustfmt::skip]
+const DEFAULT_THRESH: [u16; 4] = [
+    // Left
+    2400,
+    // Down
+    450,
+    // Right
+    2200,
+    // Up
+    1000,
+    // ???: above is not flashed yet
+];
+
 static mut EP_MEMORY: [u32; 1024] = [0; 1024];
 
 fn get_report(vals: &AdcValues, thresh: &[u16; 4]) -> JoystickReport {
@@ -30,7 +43,7 @@ fn get_report(vals: &AdcValues, thresh: &[u16; 4]) -> JoystickReport {
 mod app {
     use core::ptr;
 
-    use crate::{push_buffer::PushBuffer, AdcValues};
+    use crate::{push_buffer::PushBuffer, AdcValues, DEFAULT_THRESH};
     use abi::Codec;
     use dwt_systick_monotonic::DwtSystick;
     use log::{debug, trace, warn};
@@ -197,7 +210,7 @@ mod app {
             Shared {
                 transfer,
                 adc_values: Default::default(),
-                thresh: [512; 4],
+                thresh: DEFAULT_THRESH,
             },
             Local {
                 buffer: second_buffer,
