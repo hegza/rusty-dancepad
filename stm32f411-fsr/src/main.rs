@@ -84,7 +84,7 @@ mod app {
     use crate::{push_buffer::PushBuffer, setup_usb_joystick, AdcValues, MAX_ADC_COUNT};
     use abi::Codec;
     use dwt_systick_monotonic::DwtSystick;
-    use log::{debug, info, trace, warn};
+    use log::{info, trace};
     use rtt_target::{rprintln, rtt_init_print};
     use stm32f4xx_hal::otg_fs::{UsbBus, USB};
     use stm32f4xx_hal::{
