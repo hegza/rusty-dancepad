@@ -54,11 +54,12 @@ mod app {
             Adc,
         },
         dma::{config::DmaConfig, PeripheralToMemory, Stream0, StreamsTuple, Transfer},
+        gpio::{self, Output, PushPull},
         otg_fs::{UsbBus, USB},
-        pac::{self, ADC1, DMA2, USART1},
+        pac::{self, ADC1, DMA2, TIM1, USART1},
         prelude::*,
         serial::{self, Serial},
-        timer::{CounterHz, Event, Timer},
+        timer::{self, CounterHz, Event, Timer},
     };
     use usb_device::{
         bus::UsbBusAllocator,
@@ -94,6 +95,7 @@ mod app {
         cmd_buf: Option<PushBuffer<{ abi::Command::MAX_SERIALIZED_LEN }>>,
         serial_rx: serial::Rx<USART1>,
         serial_tx: serial::Tx<USART1>,
+        led: gpio::PC13<Output<PushPull>>,
     }
 
     #[init]
@@ -126,6 +128,14 @@ mod app {
         let mut timer = Timer::new(dp.TIM2, &clocks).counter_hz();
         timer.start(1_000.Hz()).unwrap();
         timer.listen(Event::Update);
+
+        // Configure the LED pin as a push pull output and obtain handle
+        // On the Blackpill STM32F411CEU6 there is an on-board LED connected to pin PC13
+        // 1) Promote the GPIOC PAC struct
+        let gpioc = dp.GPIOC.split();
+
+        // 2) Configure PORTC OUTPUT Pins and Obtain Handle
+        let led = gpioc.pc13.into_push_pull_output();
 
         let gpioa = dp.GPIOA.split();
         let gpiob = dp.GPIOB.split();
@@ -221,12 +231,36 @@ mod app {
                 serial_rx,
                 serial_tx,
                 cmd_buf: None,
+                led,
             },
             init::Monotonics(mono),
         )
     }
 
-    #[task(shared = [transfer])]
+    #[idle(local = [led], shared = [])]
+    fn idle(ctx: idle::Context) -> ! {
+        let led = ctx.local.led;
+        let mut i = 0;
+        loop {
+            // Turn On LED
+            led.set_high();
+            // Delay
+            for _ in 0..20_000_000 {
+                unsafe { core::arch::asm!("nop") };
+            }
+            // Turn off LED
+            led.set_low();
+            // Obtain shared delay variable and delay
+            for _ in 0..20_000_000 {
+                unsafe { core::arch::asm!("nop") };
+            }
+            i = (i + 1) % 4;
+            if i == 0 {
+                trace!("alive");
+            }
+        }
+    }
+
     #[task(shared = [transfer], priority = 4)]
     fn adc_poll(mut cx: adc_poll::Context) {
         cx.shared.transfer.lock(|transfer| {
