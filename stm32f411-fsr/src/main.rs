@@ -125,9 +125,11 @@ mod app {
         usb_dev: UsbDevice<'static, UsbBus<USB>>,
         joy: UsbHidClass<'static, UsbBus<USB>, frunk::HList!(Joystick<'static, UsbBus<USB>>)>,
         dma_counter: usize,
+        /*
         cmd_buf: Option<PushBuffer<{ abi::Command::MAX_SERIALIZED_LEN }>>,
         serial_rx: serial::Rx<USART1>,
         serial_tx: serial::Tx<USART1>,
+        */
         led: gpio::PC13<Output<PushPull>>,
     }
 
@@ -178,6 +180,7 @@ mod app {
         let v3 = gpioa.pa7.into_analog();
         let v4 = gpiob.pb0.into_analog();
 
+        /*
         let tx_pin = gpiob.pb6;
         let rx_pin = gpiob.pb7;
         let config = serial::Config::default().baudrate(115200.bps());
@@ -187,6 +190,7 @@ mod app {
 
         serial_rx.listen();
         serial_rx.listen_idle();
+        */
 
         // USB
         let usb = USB::new(
@@ -238,9 +242,11 @@ mod app {
                 joy,
                 timer,
                 dma_counter: 0,
+                /*
                 serial_rx,
                 serial_tx,
                 cmd_buf: None,
+                */
                 led,
             },
             init::Monotonics(mono),
@@ -356,7 +362,8 @@ mod app {
         timer.clear_all_flags();
     }
 
-    #[task(binds = USART1, priority = 1, shared = [thresh, adc_values], local = [cmd_buf, serial_rx, serial_tx])]
+    /*
+    #[task(binds = USART1, priority = 1, shared = [adc_map, adc_values], local = [cmd_buf, serial_rx, serial_tx])]
     fn uart_rx(mut cx: uart_rx::Context) {
         let b = cx.local.serial_rx.read().unwrap();
         if b != abi::corncobs::ZERO {
@@ -398,4 +405,5 @@ mod app {
             .unwrap();
         cx.local.serial_tx.write_all(&resp_buf).unwrap();
     }
+    */
 }
