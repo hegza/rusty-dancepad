@@ -1,5 +1,7 @@
 use heapless::Vec;
 
+use crate::MAX_ADC_COUNT;
+
 pub(crate) struct Profile {
     /// ADC0
     pub(crate) pa0: Option<SensorConfig>,
@@ -53,7 +55,7 @@ impl TrigCond {
 }
 
 impl Profile {
-    pub fn get_adc_map(&self) -> Vec<(usize, u16), 10> {
+    pub fn get_adc_map(&self) -> Vec<(usize, u16), MAX_ADC_COUNT> {
         let mut map = Vec::new();
 
         unsafe {

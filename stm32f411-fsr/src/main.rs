@@ -6,7 +6,8 @@ mod logging;
 mod profile;
 mod push_buffer;
 
-const MAX_ADC_COUNT: usize = 10;
+// HACK: this has to be exactly the number of ADCs in use
+const MAX_ADC_COUNT: usize = 8;
 type AdcValues = abi::AdcValues<MAX_ADC_COUNT>;
 use core::ptr;
 
@@ -59,7 +60,7 @@ const DEFAULT_PROFILE: Profile = Profile {
         cond: TrigCond::Rel { idle: 0, thr: 0.25 },
         btn: 0,
     }),
-    // Right, right
+    // Left, right
     pb0: Some(SensorConfig {
         cond: TrigCond::Rel { idle: 0, thr: 0.25 },
         btn: 0,
@@ -156,7 +157,7 @@ mod app {
     struct Shared {
         transfer: DMATransfer,
         adc_values: AdcValues,
-        adc_map: Vec<(usize, u16), 10>,
+        adc_map: Vec<(usize, u16), MAX_ADC_COUNT>,
     }
 
     #[local]
@@ -380,13 +381,11 @@ mod app {
         loop {
             // Turn On LED
             led.set_high();
-            // Delay
             for _ in 0..20_000_000 {
                 unsafe { core::arch::asm!("nop") };
             }
             // Turn off LED
             led.set_low();
-            // Obtain shared delay variable and delay
             for _ in 0..20_000_000 {
                 unsafe { core::arch::asm!("nop") };
             }
