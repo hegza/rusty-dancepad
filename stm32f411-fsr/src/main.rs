@@ -24,29 +24,45 @@ use usbd_human_interface_device::{
 
 const DEFAULT_PROFILE: Profile = Profile {
     pa0: None,
-    pa1: None,
-    pa2: None,
-    pa3: None,
-    pa4: None,
-    // Left
-    pa5: Some(SensorConfig {
-        cond: TrigCond::Abs(2400),
-        btn: 0,
-    }),
-    // Down
-    pa6: Some(SensorConfig {
-        cond: TrigCond::Abs(450),
-        btn: 1,
-    }),
-    // Right
-    pa7: Some(SensorConfig {
-        cond: TrigCond::Abs(2200),
+    // Up, left
+    pa1: Some(SensorConfig {
+        cond: TrigCond::Rel { idle: 0, thr: 0.25 },
         btn: 2,
     }),
-    // Up
-    pb0: Some(SensorConfig {
-        cond: TrigCond::Abs(1000),
+    // Up, right
+    pa2: Some(SensorConfig {
+        cond: TrigCond::Rel { idle: 0, thr: 0.25 },
+        btn: 2,
+    }),
+    // Right, left
+    pa3: Some(SensorConfig {
+        cond: TrigCond::Rel { idle: 0, thr: 0.25 },
+        btn: 1,
+    }),
+    // Right, right
+    pa4: Some(SensorConfig {
+        cond: TrigCond::Rel { idle: 0, thr: 0.25 },
+        btn: 1,
+    }),
+    // Down, left
+    pa5: Some(SensorConfig {
+        cond: TrigCond::Rel { idle: 0, thr: 0.25 },
         btn: 3,
+    }),
+    // Down, right
+    pa6: Some(SensorConfig {
+        cond: TrigCond::Rel { idle: 0, thr: 0.25 },
+        btn: 3,
+    }),
+    // Left, left
+    pa7: Some(SensorConfig {
+        cond: TrigCond::Rel { idle: 0, thr: 0.25 },
+        btn: 0,
+    }),
+    // Right, right
+    pb0: Some(SensorConfig {
+        cond: TrigCond::Rel { idle: 0, thr: 0.25 },
+        btn: 0,
     }),
     pb1: None,
 };
