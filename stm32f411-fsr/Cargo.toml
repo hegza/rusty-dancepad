@@ -21,6 +21,7 @@ frunk = { version = "0.4.3", default-features = false }
 dwt-systick-monotonic = "1.1.0"
 abi = { path = "../abi", features = ["device"] }
 log = "0.4.22"
+heapless = "0.8.0"
 
 [dependencies.stm32f4xx-hal]
 version = "0.22.1"

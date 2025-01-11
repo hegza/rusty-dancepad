@@ -1,15 +1,17 @@
 #![no_std]
 #![no_main]
 #![allow(static_mut_refs)]
+#![feature(stmt_expr_attributes)]
 mod logging;
+mod profile;
 mod push_buffer;
 
-type AdcValues = abi::AdcValues<4>;
-use panic_probe as _;
+const MAX_ADC_COUNT: usize = 10;
+type AdcValues = abi::AdcValues<MAX_ADC_COUNT>;
 use core::ptr;
 
-#[rustfmt::skip]
-const DEFAULT_THRESH: [u16; 4] = [
+use panic_probe as _;
+use profile::{Profile, SensorConfig, TrigCond};
 use stm32f4xx_hal::otg_fs::{UsbBus, USB};
 use usb_device::{
     bus::UsbBusAllocator,
@@ -20,28 +22,47 @@ use usbd_human_interface_device::{
     prelude::*,
 };
 
+const DEFAULT_PROFILE: Profile = Profile {
+    pa0: None,
+    pa1: None,
+    pa2: None,
+    pa3: None,
+    pa4: None,
     // Left
-    2400,
+    pa5: Some(SensorConfig {
+        cond: TrigCond::Abs(2400),
+        btn: 0,
+    }),
     // Down
-    450,
+    pa6: Some(SensorConfig {
+        cond: TrigCond::Abs(450),
+        btn: 1,
+    }),
     // Right
-    2200,
+    pa7: Some(SensorConfig {
+        cond: TrigCond::Abs(2200),
+        btn: 2,
+    }),
     // Up
-    1000,
-    // ???: above is not flashed yet
-];
+    pb0: Some(SensorConfig {
+        cond: TrigCond::Abs(1000),
+        btn: 3,
+    }),
+    pb1: None,
+};
 
 /// Scratchpad for USB
 static mut EP_MEMORY: [u32; 1024] = [0; 1024];
 static mut USB_BUS_ALLOCATOR: Option<UsbBusAllocator<UsbBus<USB>>> = None;
 
-fn get_report(vals: &AdcValues, thresh: &[u16; 4]) -> JoystickReport {
-    // Read out 8 buttons first
+fn get_report(vals: &AdcValues, adc_map: &[(usize, u16)]) -> JoystickReport {
+    // Joystick exposes 8 buttons, represented as the single bits in a u8
     let mut buttons = 0;
 
-    for (idx, v) in vals.iter().enumerate() {
-        if *v >= thresh[idx] {
-            buttons |= 0b1 << idx;
+    // Fill out each button state based on whether the ADC value is above the threshold
+    for (val, (btn_idx, thr)) in vals.iter().zip(adc_map.iter()) {
+        if *val >= *thr {
+            buttons |= 0b1 << btn_idx;
         }
     }
 
@@ -81,46 +102,50 @@ fn setup_usb_joystick(
 
 #[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [EXTI0])]
 mod app {
-    use crate::{push_buffer::PushBuffer, setup_usb_joystick, AdcValues, MAX_ADC_COUNT};
-    use abi::Codec;
+    use crate::DEFAULT_PROFILE;
+    use crate::{setup_usb_joystick, AdcValues, MAX_ADC_COUNT};
     use dwt_systick_monotonic::DwtSystick;
+    use heapless::Vec;
     use log::{info, trace};
-    use rtt_target::{rprintln, rtt_init_print};
+    use rtt_target::{rprint, rprintln, rtt_init_print};
     use stm32f4xx_hal::otg_fs::{UsbBus, USB};
     use stm32f4xx_hal::{
         adc::{
-            config::{AdcConfig, Dma, SampleTime, Scan, Sequence},
+            config::{AdcConfig, Dma, SampleTime, Scan},
             Adc,
         },
         dma::{config::DmaConfig, PeripheralToMemory, Stream0, StreamsTuple, Transfer},
         gpio::{self, Output, PushPull},
-        pac::{self, ADC1, DMA2, USART1},
+        pac::{self, ADC1, DMA2},
         prelude::*,
-        serial::{self, Serial},
         timer::{CounterHz, Event, Timer},
     };
     use usb_device::device::UsbDevice;
     use usbd_human_interface_device::{device::joystick::Joystick, prelude::*};
-    use usbd_serial::embedded_io::Write;
 
     const MONO_HZ: u32 = 84_000_000;
 
     #[monotonic(binds = SysTick, default = true)]
     type MyMono = DwtSystick<MONO_HZ>;
 
-    type DMATransfer =
-        Transfer<Stream0<DMA2>, 0, Adc<ADC1>, PeripheralToMemory, &'static mut [u16; 4]>;
+    type DMATransfer = Transfer<
+        Stream0<DMA2>,
+        0,
+        Adc<ADC1>,
+        PeripheralToMemory,
+        &'static mut [u16; MAX_ADC_COUNT],
+    >;
 
     #[shared]
     struct Shared {
         transfer: DMATransfer,
         adc_values: AdcValues,
-        thresh: [u16; 4],
+        adc_map: Vec<(usize, u16), 10>,
     }
 
     #[local]
     struct Local {
-        buffer: Option<&'static mut [u16; 4]>,
+        buffer: Option<&'static mut [u16; MAX_ADC_COUNT]>,
         timer: CounterHz<pac::TIM2>,
         usb_dev: UsbDevice<'static, UsbBus<USB>>,
         joy: UsbHidClass<'static, UsbBus<USB>, frunk::HList!(Joystick<'static, UsbBus<USB>>)>,
@@ -173,12 +198,7 @@ mod app {
         // 2) Configure PORTC OUTPUT Pins and Obtain Handle
         let led = gpioc.pc13.into_push_pull_output();
 
-        let gpioa = dp.GPIOA.split();
         let gpiob = dp.GPIOB.split();
-        let v1 = gpioa.pa5.into_analog();
-        let v2 = gpioa.pa6.into_analog();
-        let v3 = gpioa.pa7.into_analog();
-        let v4 = gpiob.pb0.into_analog();
 
         /*
         let tx_pin = gpiob.pb6;
@@ -192,6 +212,8 @@ mod app {
         serial_rx.listen_idle();
         */
 
+        let gpioa = dp.GPIOA.split();
+
         // USB
         let usb = USB::new(
             (dp.OTG_FS_GLOBAL, dp.OTG_FS_DEVICE, dp.OTG_FS_PWRCLK),
@@ -203,12 +225,92 @@ mod app {
         let adc_config = AdcConfig::default()
             .dma(Dma::Continuous)
             .scan(Scan::Enabled);
-
         let mut adc = Adc::adc1(dp.ADC1, true, adc_config);
-        adc.configure_channel(&v1, Sequence::One, SampleTime::Cycles_480);
-        adc.configure_channel(&v2, Sequence::Two, SampleTime::Cycles_480);
-        adc.configure_channel(&v3, Sequence::Three, SampleTime::Cycles_480);
-        adc.configure_channel(&v4, Sequence::Four, SampleTime::Cycles_480);
+        let mut adc_count = 0;
+
+        let prof = DEFAULT_PROFILE;
+        if prof.pa0.is_some() {
+            adc.configure_channel(
+                &gpioa.pa0.into_analog(),
+                (adc_count as u8 + 1u8).into(),
+                SampleTime::Cycles_480,
+            );
+            adc_count += 1;
+        }
+        if prof.pa1.is_some() {
+            adc.configure_channel(
+                &gpioa.pa1.into_analog(),
+                (adc_count as u8 + 1u8).into(),
+                SampleTime::Cycles_480,
+            );
+            adc_count += 1;
+        }
+        if prof.pa2.is_some() {
+            adc.configure_channel(
+                &gpioa.pa2.into_analog(),
+                (adc_count as u8 + 1u8).into(),
+                SampleTime::Cycles_480,
+            );
+            adc_count += 1;
+        }
+        if prof.pa3.is_some() {
+            adc.configure_channel(
+                &gpioa.pa3.into_analog(),
+                (adc_count as u8 + 1u8).into(),
+                SampleTime::Cycles_480,
+            );
+            adc_count += 1;
+        }
+        if prof.pa4.is_some() {
+            adc.configure_channel(
+                &gpioa.pa4.into_analog(),
+                (adc_count as u8 + 1u8).into(),
+                SampleTime::Cycles_480,
+            );
+            adc_count += 1;
+        }
+        if prof.pa5.is_some() {
+            adc.configure_channel(
+                &gpioa.pa5.into_analog(),
+                (adc_count as u8 + 1u8).into(),
+                SampleTime::Cycles_480,
+            );
+            adc_count += 1;
+        }
+        if prof.pa6.is_some() {
+            adc.configure_channel(
+                &gpioa.pa6.into_analog(),
+                (adc_count as u8 + 1u8).into(),
+                SampleTime::Cycles_480,
+            );
+            adc_count += 1;
+        }
+        if prof.pa7.is_some() {
+            adc.configure_channel(
+                &gpioa.pa7.into_analog(),
+                (adc_count as u8 + 1u8).into(),
+                SampleTime::Cycles_480,
+            );
+            adc_count += 1;
+        }
+        if prof.pb0.is_some() {
+            adc.configure_channel(
+                &gpiob.pb0.into_analog(),
+                (adc_count as u8 + 1u8).into(),
+                SampleTime::Cycles_480,
+            );
+            adc_count += 1;
+        }
+        if prof.pb1.is_some() {
+            adc.configure_channel(
+                &gpiob.pb1.into_analog(),
+                (adc_count as u8 + 1u8).into(),
+                SampleTime::Cycles_480,
+            );
+            #[allow(unused_assignments)]
+            adc_count += 1;
+        }
+
         adc.enable_temperature_and_vref();
 
         let dma = StreamsTuple::new(dp.DMA2);
@@ -221,8 +323,10 @@ mod app {
         // them to be dropped while the DMA is accessing them. The easiest way
         // to satisfy that is to make them static, and the safest way to do that is with
         // `cortex_m::singleton!`
-        let first_buffer = cortex_m::singleton!(: [u16; 4] = [0; 4]).unwrap();
-        let second_buffer = Some(cortex_m::singleton!(: [u16; 4] = [0; 4]).unwrap());
+        let first_buffer =
+            cortex_m::singleton!(: [u16; MAX_ADC_COUNT] = [0; MAX_ADC_COUNT]).unwrap();
+        let second_buffer =
+            Some(cortex_m::singleton!(: [u16; MAX_ADC_COUNT] = [0; MAX_ADC_COUNT]).unwrap());
         // Give the first buffer to the DMA. The second buffer is held in an Option in
         // `local.buffer` until the transfer is complete
         let transfer =
@@ -234,7 +338,7 @@ mod app {
             Shared {
                 transfer,
                 adc_values: Default::default(),
-                thresh: DEFAULT_THRESH,
+                adc_map: prof.get_adc_map(),
             },
             Local {
                 buffer: second_buffer,
@@ -308,10 +412,7 @@ mod app {
         });
 
         // Pull the ADC data out of the buffer that the DMA transfer gave us
-        let raw_volt1 = buffer[0];
-        let raw_volt2 = buffer[1];
-        let raw_volt3 = buffer[2];
-        let raw_volt4 = buffer[3];
+        let raw_volts = buffer.clone();
 
         // Now that we're finished with this buffer, put it back in `local.buffer` so
         // it's ready for the next transfer If we don't do this before the next
@@ -321,33 +422,26 @@ mod app {
         // Print periodically
         *local.dma_counter = (*local.dma_counter + 1) % 500;
         if *local.dma_counter == 0 {
-            let voltage1 = sample_to_millivolts(raw_volt1);
-            let voltage2 = sample_to_millivolts(raw_volt2);
-            let voltage3 = sample_to_millivolts(raw_volt3);
-            let voltage4 = sample_to_millivolts(raw_volt4);
-
-            rprintln!(
-                "voltage 1: {:<4}, voltage 2: {:<4}, voltage 3: {:<4}, voltage 4: {:<4}",
-                voltage1,
-                voltage2,
-                voltage3,
-                voltage4
-            );
+            for (idx, raw) in raw_volts.into_iter().enumerate() {
+                let voltage = sample_to_millivolts(raw);
+                rprint!("voltage {}: {:<4} ", idx, voltage,);
+            }
+            rprintln!();
         }
     }
 
-    #[task(binds = TIM2, priority = 2, local = [timer, usb_dev, joy], shared = [adc_values, thresh])]
+    #[task(binds = TIM2, priority = 2, local = [timer, usb_dev, joy], shared = [adc_values, adc_map])]
     fn usb_report(mut cx: usb_report::Context) {
         let timer = cx.local.timer;
 
         let values = cx.shared.adc_values.lock(|vals| vals.clone());
-        let thresh = cx.shared.thresh.lock(|vals| vals.clone());
+        let adc_map = cx.shared.adc_map.lock(|vals| vals.clone());
         // Poll every 1ms
         match cx
             .local
             .joy
             .device()
-            .write_report(&crate::get_report(&values, &thresh))
+            .write_report(&crate::get_report(&values, &adc_map))
         {
             Err(UsbHidError::WouldBlock) => {}
             Ok(_) => {}
